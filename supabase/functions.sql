@@ -219,3 +219,80 @@ BEGIN
   RETURN jsonb_build_object('success', true, 'data', jsonb_build_object('message', 'MED-2026-001 reset to ACTIVE'), 'error', null);
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- BATCH TIMELINE (for Authority Command Center / any batch detail view)
+CREATE OR REPLACE FUNCTION get_batch_timeline(p_batch_number TEXT)
+RETURNS JSONB AS $$
+DECLARE
+  v_batch_id UUID;
+  v_events JSONB;
+BEGIN
+  SELECT id INTO v_batch_id FROM batches WHERE batch_number = p_batch_number;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'data', null, 'error', 'Batch not found');
+  END IF;
+
+  SELECT jsonb_agg(
+    jsonb_build_object(
+      'event_type', event_type, 'organization_id', organization_id,
+      'quantity', quantity, 'location', location, 'metadata', metadata, 'timestamp', timestamp
+    ) ORDER BY timestamp ASC
+  ) INTO v_events
+  FROM batch_events WHERE batch_id = v_batch_id;
+
+  RETURN jsonb_build_object('success', true, 'data', jsonb_build_object('batch_number', p_batch_number, 'events', COALESCE(v_events, '[]'::jsonb)), 'error', null);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- AUTHORITY DASHBOARD STATS
+CREATE OR REPLACE FUNCTION get_authority_dashboard_stats()
+RETURNS JSONB AS $$
+DECLARE
+  v_stats JSONB;
+BEGIN
+  SELECT jsonb_build_object(
+    'total_batches', (SELECT COUNT(*) FROM batches),
+    'expiring_soon', (SELECT COUNT(*) FROM batches WHERE status = 'EXPIRING_SOON'),
+    'expired', (SELECT COUNT(*) FROM batches WHERE status = 'EXPIRED'),
+    'in_reverse_chain', (SELECT COUNT(*) FROM batches WHERE status IN ('RETURN_REQUESTED', 'DISTRIBUTOR_RECEIVED', 'MANUFACTURER_RECEIVED')),
+    'pending_destruction', (SELECT COUNT(*) FROM batches WHERE status = 'PENDING_DESTRUCTION'),
+    'destroyed', (SELECT COUNT(*) FROM batches WHERE status = 'DESTROYED'),
+    'fraud_alerts_open', (SELECT COUNT(*) FROM fraud_alerts WHERE status = 'OPEN'),
+    'disputes_open', (SELECT COUNT(*) FROM returns WHERE status = 'DISPUTED')
+  ) INTO v_stats;
+
+  RETURN jsonb_build_object('success', true, 'data', v_stats, 'error', null);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+-- FRAUD ALERT DETAIL (for evidence drawer)
+CREATE OR REPLACE FUNCTION get_fraud_alert_detail(p_alert_id UUID)
+RETURNS JSONB AS $$
+DECLARE
+  v_alert fraud_alerts%ROWTYPE;
+  v_batch batches%ROWTYPE;
+  v_timeline JSONB;
+BEGIN
+  SELECT * INTO v_alert FROM fraud_alerts WHERE id = p_alert_id;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'data', null, 'error', 'Alert not found');
+  END IF;
+
+  SELECT * INTO v_batch FROM batches WHERE id = v_alert.batch_id;
+
+  SELECT jsonb_agg(
+    jsonb_build_object('event_type', event_type, 'location', location, 'timestamp', timestamp) ORDER BY timestamp ASC
+  ) INTO v_timeline
+  FROM batch_events WHERE batch_id = v_alert.batch_id;
+
+  RETURN jsonb_build_object('success', true, 'data', jsonb_build_object(
+    'alert_type', v_alert.alert_type, 'risk_score', v_alert.risk_score, 'description', v_alert.description,
+    'detected_location', v_alert.detected_location, 'status', v_alert.status,
+    'batch_number', v_batch.batch_number, 'medicine_name', v_batch.medicine_name, 'current_status', v_batch.status,
+    'timeline', COALESCE(v_timeline, '[]'::jsonb)
+  ), 'error', null);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
