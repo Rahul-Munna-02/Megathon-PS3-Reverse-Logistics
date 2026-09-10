@@ -1,0 +1,1 @@
+mkdir -p src/services && pbpaste > src/services/manufacturerFraudService.ts
