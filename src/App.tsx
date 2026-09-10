@@ -1,7 +1,13 @@
 import { useState, useEffect } from "react";
 import { supabase } from './lib/supabase';
 import { manufacturerFraudService } from './services/manufacturerFraudService';
-import type { Batch } from './types/medtrace';
+import type { Batch, BatchEvent, FraudAlert } from './types/medtrace';
+
+interface ScanResult {
+  status: 'FRAUD' | 'VALID' | 'WARNING' | 'EXPIRED' | 'UNKNOWN_BATCH';
+  batch: Batch | null;
+  alert: FraudAlert | null;
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'manufacturer' | 'scanner'>('manufacturer');
@@ -18,16 +24,22 @@ export default function App() {
   // Scanner states
   const [scanBatchNum, setScanBatchNum] = useState('MED-2026-001');
   const [scanLocation, setScanLocation] = useState('Pharmacy B');
-  const [scanResult, setScanResult] = useState<any>(null);
-  const [timeline, setTimeline] = useState<any[]>([]);
+  const [scanResult, setScanResult] = useState<ScanResult | null>(null);
+  const [timeline, setTimeline] = useState<BatchEvent[]>([]);
 
   useEffect(() => {
-    fetchBatches();
+    let cancelled = false;
+    const load = async () => {
+      const { data } = await supabase.from('batches').select('*').order('created_at', { ascending: false });
+      if (data && !cancelled) setBatches(data as Batch[]);
+    };
+    load();
+    return () => { cancelled = true; };
   }, []);
 
   const fetchBatches = async () => {
     const { data } = await supabase.from('batches').select('*').order('created_at', { ascending: false });
-    if (data) setBatches(data);
+    if (data) setBatches(data as Batch[]);
   };
 
   const handleVerifyReceipt = async (b: Batch) => {
@@ -36,8 +48,8 @@ export default function App() {
       await manufacturerFraudService.markManufacturerReceived(b.id, b.quantity, 'mfg-user', b.manufacturer_id, 'Manufacturer Facility A');
       setFeedback(`Batch ${b.batch_number} verified and received.`);
       fetchBatches();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -49,8 +61,8 @@ export default function App() {
       await manufacturerFraudService.scheduleDestruction(b.id, facilityId, 'mfg-user', b.manufacturer_id);
       setFeedback(`Batch ${b.batch_number} queued for destruction.`);
       fetchBatches();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -86,8 +98,8 @@ export default function App() {
       setSelectedBatch(null);
       setCertVerified(null);
       fetchBatches();
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -98,14 +110,14 @@ export default function App() {
     setScanResult(null);
     setTimeline([]);
     try {
-      const result = await manufacturerFraudService.checkBatchForReentry(scanBatchNum.trim(), scanLocation.trim());
+      const result = await manufacturerFraudService.checkBatchForReentry(scanBatchNum.trim(), scanLocation.trim()) as ScanResult;
       setScanResult(result);
       if (result.batch) {
         const events = await manufacturerFraudService.getBatchTimeline(result.batch.id);
         setTimeline(events || []);
       }
-    } catch (err: any) {
-      alert(err.message);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -277,10 +289,10 @@ export default function App() {
                 <div style={{ background: '#fef2f2', border: '2px solid #ef4444', borderRadius: '8px', padding: '24px' }}>
                   <h1 style={{ color: '#991b1b', margin: '0 0 10px 0' }}>🚨 DESTROYED BATCH RE-ENTRY DETECTED</h1>
                   <h3 style={{ margin: '0 0 16px 0', color: '#b91c1c' }}>Risk Score: 92 / 100</h3>
-                  <p><strong>Batch:</strong> {scanResult.batch.batch_number}</p>
-                  <p><strong>Medicine:</strong> {scanResult.batch.medicine_name}</p>
-                  <p><strong>Status:</strong> {scanResult.batch.status}</p>
-                  <p><strong>Detected Location:</strong> {scanResult.alert.detected_location}</p>
+                  <p><strong>Batch:</strong> {scanResult.batch?.batch_number}</p>
+                  <p><strong>Medicine:</strong> {scanResult.batch?.medicine_name}</p>
+                  <p><strong>Status:</strong> {scanResult.batch?.status}</p>
+                  <p><strong>Detected Location:</strong> {scanResult.alert?.detected_location}</p>
 
                   <div style={{ marginTop: '20px', padding: '16px', background: '#fff', borderRadius: '6px' }}>
                     <h4>Chain of Custody Timeline</h4>

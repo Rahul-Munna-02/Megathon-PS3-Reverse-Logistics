@@ -47,7 +47,7 @@ export interface BatchEvent {
   quantity: number;
   timestamp: string;
   location: string;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export interface DestructionCertificate {
