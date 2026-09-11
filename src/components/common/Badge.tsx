@@ -2,14 +2,15 @@ import React from 'react';
 import type { BatchStatus, ReturnStatus, TrustGateDecision } from '../../types/medtrace';
 
 interface BadgeProps {
-  status: BatchStatus | ReturnStatus | TrustGateDecision | string;
+  status?: BatchStatus | ReturnStatus | TrustGateDecision | string | null;
   className?: string;
 }
 
 export const Badge: React.FC<BadgeProps> = ({ status, className = '' }) => {
+  const safeStatus = status ? String(status) : 'UNKNOWN';
   let styleClasses = 'bg-slate-800 text-slate-300 border-slate-700';
 
-  switch (status) {
+  switch (safeStatus) {
     case 'ACTIVE':
     case 'ALLOW':
     case 'VERIFIED':
@@ -57,7 +58,7 @@ export const Badge: React.FC<BadgeProps> = ({ status, className = '' }) => {
       className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold tracking-wider uppercase border ${styleClasses} ${className}`}
     >
       <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5 animate-ping opacity-75"></span>
-      {status.replace(/_/g, ' ')}
+      {safeStatus.replace(/_/g, ' ')}
     </span>
   );
 };
